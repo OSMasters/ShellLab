@@ -72,6 +72,8 @@ void sigchld_handler(int sig);
 void sigtstp_handler(int sig);
 void sigint_handler(int sig);
 
+/* Wrapper functions */
+pid_t Fork(void);
 /* Here are helper routines that we've provided for you */
 int parseline(const char *cmdline, char **argv); 
 void sigquit_handler(int sig);
@@ -186,6 +188,7 @@ void eval(char *cmdline)
     char buf[MAXLINE];
     int bg;
     pid_t pid;
+    
 
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);
@@ -206,8 +209,13 @@ void eval(char *cmdline)
 	    if(waitpid(pid, &status, 0) < 0)
 		unix_error("waitfg: waitpid error");
 	    }
-	else
-	    printf("%d %s", pid, cmdline);
+	else {
+            int state = FG;
+	    if(bg)
+                state = BG;
+            addjob(jobs, pid, state, cmdline);
+	    printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+        }
     }
 	   
     return;
@@ -283,12 +291,10 @@ int builtin_cmd(char **argv)
 	exit(0);
     if(!strcmp(argv[0], "&"))   /*Ignore singleton & */
 	return 1;
-    if(!strcmp(argv[0], "fg"))
-        // handle fg command
-    if(!strcmp(argv[0], "bg"))
-        // handle bg command
-    if(!strcmp(argv[0], "jobs"))
-        // handle jobs command
+    if(!strcmp(argv[0], "jobs")) {
+        listjobs(jobs);
+        return 1;
+    }
 
     return 0;     /* not a builtin command */
 }
