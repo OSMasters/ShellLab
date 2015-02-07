@@ -281,10 +281,16 @@ int builtin_cmd(char **argv)
 {
     if(!strcmp(argv[0], "quit")) /* if quit command */
 	exit(0);
-    if(!strcmp(argv[0], "&"))   /*Ignore singelton & */
+    if(!strcmp(argv[0], "&"))   /*Ignore singleton & */
 	return 1;
+    if(!strcmp(argv[0], "fg"))
+        // handle fg command
+    if(!strcmp(argv[0], "bg"))
+        // handle bg command
+    if(!strcmp(argv[0], "jobs"))
+        // handle jobs command
 
-     return 0;     /* not a builtin command */
+    return 0;     /* not a builtin command */
 }
 
 /* 
