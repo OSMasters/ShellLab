@@ -74,6 +74,10 @@ void sigint_handler(int sig);
 
 /* Wrapper functions */
 pid_t Fork(void);
+void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+void Sigemptyset(sigset_t *set);
+void Sigaddset(sigset_t *set, int signum);
+
 /* Here are helper routines that we've provided for you */
 int parseline(const char *cmdline, char **argv); 
 void sigquit_handler(int sig);
@@ -163,12 +167,34 @@ int main(int argc, char **argv)
     exit(0); /* control never reaches here */
 }
 
-pid_t Fork(void) {
+pid_t Fork(void)
+{
     pid_t pid;
    
     if((pid = fork()) < 0)
 	unix_error("Fork error");
     return pid;
+}
+
+void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+    if(sigprocmask(how, set, oldset) < 0)
+        unix_error("Sigprocmask error");
+    return;
+}
+
+void Sigemptyset(sigset_t *set)
+{
+    if(sigemptyset(set) < 0)
+        unix_error("Sigemptyset error");
+    return;
+}
+
+void Sigaddset(sigset_t *set, int signum)
+{
+    if(sigaddset(set, signum) < 0)
+        unix_error("Sigaddset error");
+    return;
 }
   
 /* 
@@ -188,7 +214,7 @@ void eval(char *cmdline)
     char buf[MAXLINE];
     int bg;
     pid_t pid;
-    
+    sigset_t mask;
 
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);
@@ -196,6 +222,10 @@ void eval(char *cmdline)
 	return;
     
     if(!builtin_cmd(argv)) {
+        Sigemptyset(&mask);
+        Sigaddset(&mask, SIGCHLD);
+        Sigprocmask(SIG_BLOCK, &mask, NULL); // block SIGCHLD
+
 	if((pid = Fork()) == 0) { // child process
             if(setpgid(0, 0) < 0) // set group ID to child's PID
                 unix_error("setpgid error");
@@ -204,21 +234,17 @@ void eval(char *cmdline)
 		exit(0);
 	    }
 	}
-	
-        int state;
-	/*Parent wait for forground job to terminate */
-	if(!bg) {
-            state = FG;
-	    int status;
-	    if(waitpid(pid, &status, 0) < 0)
-		unix_error("waitfg: waitpid error");
-	    }
-	else {
-            state = BG;
-	    printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
-        }
 
-        addjob(jobs, pid, state, cmdline); // add job to list
+        int state = (bg) ? BG : FG;
+        addjob(jobs, pid, state, cmdline);
+
+        Sigprocmask(SIG_UNBLOCK, &mask, NULL); // unblock SIGCHLD
+	
+	/*Parent wait for foreground job to terminate */
+	if(!bg)
+            waitfg(pid);
+	else
+	    printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
     }
 	   
     return;
@@ -305,7 +331,7 @@ int builtin_cmd(char **argv)
 /* 
  * do_bgfg - Execute the builtin bg and fg commands
  */
-void do_bgfg(char **argv) 
+void do_bgfg(char **argv)
 {
     return;
 }
@@ -315,6 +341,9 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    struct job_t *job = getjobpid(jobs, pid);
+    while(job->state == FG)
+        sleep(1); // block
     return;
 }
 
@@ -332,12 +361,14 @@ void waitfg(pid_t pid)
 void sigchld_handler(int sig) 
 {
     pid_t pid;
+    int status;
 
-    while((pid = waitpid(-1, NULL, 0)) > 0) {
+    if((pid = waitpid(-1, &status, 0)) > 0) {
+        if(WIFSIGNALED(status)) {
+            printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid, WTERMSIG(status));
+        }
         deletejob(jobs, pid);
     }
-    if(errno != ECHILD)
-        unix_error("waitpid error");
 
     return;
 }
@@ -350,7 +381,6 @@ void sigchld_handler(int sig)
 void sigint_handler(int sig) 
 {
     pid_t pid = fgpid(jobs); // get pid of foreground job
-    printf("%d %d\n", pid, sig);
     if(kill(-pid, sig) < 0) // forward SIGINT to foreground job
         unix_error("kill error");
     return;
