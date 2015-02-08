@@ -196,26 +196,29 @@ void eval(char *cmdline)
 	return;
     
     if(!builtin_cmd(argv)) {
-	if((pid = Fork()) == 0) {
+	if((pid = Fork()) == 0) { // child process
+            if(setpgid(0, 0) < 0) // set group ID to child's PID
+                unix_error("setpgid error");
 	    if(execve(argv[0], argv, environ) < 0) {
 		printf("%s: Command not found:\n", argv[0]);
 		exit(0);
 	    }
 	}
 	
+        int state;
 	/*Parent wait for forground job to terminate */
 	if(!bg) {
+            state = FG;
 	    int status;
 	    if(waitpid(pid, &status, 0) < 0)
 		unix_error("waitfg: waitpid error");
 	    }
 	else {
-            int state = FG;
-	    if(bg)
-                state = BG;
-            addjob(jobs, pid, state, cmdline);
+            state = BG;
 	    printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
         }
+
+        addjob(jobs, pid, state, cmdline); // add job to list
     }
 	   
     return;
@@ -328,6 +331,14 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+    pid_t pid;
+
+    while((pid = waitpid(-1, NULL, 0)) > 0) {
+        deletejob(jobs, pid);
+    }
+    if(errno != ECHILD)
+        unix_error("waitpid error");
+
     return;
 }
 
@@ -338,6 +349,10 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    pid_t pid = fgpid(jobs); // get pid of foreground job
+    printf("%d %d\n", pid, sig);
+    if(kill(-pid, sig) < 0) // forward SIGINT to foreground job
+        unix_error("kill error");
     return;
 }
 
