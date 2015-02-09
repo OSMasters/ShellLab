@@ -325,10 +325,13 @@ int builtin_cmd(char **argv)
 {
     if(!strcmp(argv[0], "quit")) /* if quit command */
 	exit(0);
-    if(!strcmp(argv[0], "&"))   /*Ignore singleton & */
+    else if(!strcmp(argv[0], "&"))   /*Ignore singleton & */
 	return 1;
-    if(!strcmp(argv[0], "jobs")) {
+    else if(!strcmp(argv[0], "jobs")) {
         listjobs(jobs);
+        return 1;
+    } else if(!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
+        do_bgfg(argv);
         return 1;
     }
 
@@ -340,6 +343,55 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv)
 {
+    struct job_t *job = NULL;
+    if(!strcmp(argv[0], "bg")) {
+       /* Change a stopped background job to a running background job
+        * by sending a SIGCONT signal */
+       if(argv[1][0] == '%') {
+           /* Identified by JID */
+           int jid = atoi(argv[1] + 1);
+           if((job = getjobjid(jobs, jid)) == NULL) {
+               printf("%s: No such job\n", argv[1]);
+               return;
+           }
+
+           job->state = BG;
+           kill(-job->pid, SIGCONT);
+       } else {
+           /* Identified by PID */
+           pid_t pid = (pid_t) atoi(argv[1]);
+           job = getjobpid(jobs, pid);
+           
+           job->state = BG;
+           kill(-job->pid, SIGCONT);
+       }
+       
+       if(job != NULL) {
+           printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+       }
+    } else if(!strcmp(argv[0], "fg")) {
+       /* Change a stopped or running background job to a running
+        * job in the foreground by sending a SIGCONT signal */
+       if(argv[1][0] == '%') {
+           /* Identified by JID */
+           int jid = atoi(argv[1] + 1);
+           if((job = getjobjid(jobs, jid)) == NULL) {
+               printf("%s: No such job\n", argv[1]);
+               return;
+           }
+          /* Process needs to be forked */ 
+           job->state = FG;
+           kill(-job->pid, SIGCONT);
+           printf("job: %d continued\n", jid);
+       } else {
+           /* Identified by PID */
+           pid_t pid = (pid_t) atoi(argv[1]);
+           job = getjobpid(jobs, pid);
+           
+           job->state = FG;
+           kill(-job->pid, SIGCONT);
+       }
+    }
     return;
 }
 
