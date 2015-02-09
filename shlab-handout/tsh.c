@@ -74,6 +74,7 @@ void sigint_handler(int sig);
 
 /* Wrapper functions */
 pid_t Fork(void);
+void Kill(pid_t pid, int sig);
 void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
 void Sigemptyset(sigset_t *set);
 void Sigaddset(sigset_t *set, int signum);
@@ -174,6 +175,12 @@ pid_t Fork(void)
     if((pid = fork()) < 0)
 	unix_error("Fork error");
     return pid;
+}
+
+void Kill(pid_t pid, int sig) {
+    if(kill(pid, sig) < 0)
+        unix_error("Kill error");
+    return;
 }
 
 void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
@@ -363,13 +370,20 @@ void sigchld_handler(int sig)
     pid_t pid;
     int status;
 
-    if((pid = waitpid(-1, &status, 0)) > 0) {
-        if(WIFSIGNALED(status)) {
+    if((pid = waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) {
+        if(WIFEXITED(status)) {
+            // printf("exited: %d\n", pid);
+            deletejob(jobs, pid);
+        } else if(WIFSTOPPED(status)) {
+            // printf("stopped: %d\n", pid);
+            getjobpid(jobs, pid)->state = ST;
+            printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, WSTOPSIG(status));
+        } else if(WIFSIGNALED(status)) {
+            // printf("signaled: %d\n", pid);
             printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid, WTERMSIG(status));
+            deletejob(jobs, pid);
         }
-        deletejob(jobs, pid);
     }
-
     return;
 }
 
@@ -381,8 +395,7 @@ void sigchld_handler(int sig)
 void sigint_handler(int sig) 
 {
     pid_t pid = fgpid(jobs); // get pid of foreground job
-    if(kill(-pid, sig) < 0) // forward SIGINT to foreground job
-        unix_error("kill error");
+    Kill(-pid, sig); // forward SIGINT to foreground job
     return;
 }
 
@@ -393,6 +406,8 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    pid_t pid = fgpid(jobs); // get pid of foreground job
+    Kill(-pid, sig); // forward SIGSTP to foreground job
     return;
 }
 
