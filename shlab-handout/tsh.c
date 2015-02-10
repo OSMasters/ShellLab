@@ -219,7 +219,9 @@ int isnumeric(char *arg)
 {
     int i;
 
-    for(i = 0; arg[i] != '\0'; i++) {
+    int first = (arg[0] == '%') ? 1 : 0;
+
+    for(i = first; arg[i] != '\0'; i++) {
         if(!isdigit(arg[i]))
             return 0;
     }
@@ -369,70 +371,52 @@ int builtin_cmd(char **argv)
 void do_bgfg(char **argv)
 {
     struct job_t *job = NULL;
-    if(argv[1] == '\0') {
-        /* No argument, handle this error */
-        printf("%s command requires PID or \%jobid argument\n", argv[0]);
+    if(argv[1] == NULL) {
+        /* No argument following fg/bg, handle this error */
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
+        return;
     }
 
-    char *arg = (argv[1][0] == '%') ? argv[1] : argv[1] + 1;
+    if(!isnumeric(argv[1])) {
+        /* Illegal argument following fg/bg, handle this error */
+        printf("%s: argument must be a PID og %%jobid\n", argv[0]);
+        return;
+    }
 
-    if(!isnumeric(arg)) {
-        /* Illegal argument, handle this error */
-        printf("%s: argument must be a PID og \%jobid\n", argv[0]);
+    if(argv[1][0] == '%) {
+        /* Identified by JID */
+        int jid = atoi(argv[1] + 1);
+        
+        if((job = getjobjid(jobs, jid)) == NULL) {
+            /* No job with given JID, handle this error */
+            printf("%s: No such job\n", argv[1]);
+            return;
+        }
+    } else {
+        /* Identified by PID */
+        pid_t pid = (pid_t) atoi(argv[1]);
+        
+        if((job = getjobpid(jobs, pid)) == NULL) {
+            /* No process with given PID, handle this error */
+            printf("(%s): No such process\n", argv[1]);
+            return;
+        }
     }
 
     if(!strcmp(argv[0], "bg")) {
        /* Change a stopped background job to a running background job
         * by sending a SIGCONT signal */
-       if(argv[1][0] == '%') {
-           /* Identified by JID */
-           int jid = atoi(argv[1] + 1);
-           if((job = getjobjid(jobs, jid)) == NULL) {
-               printf("%s: No such job\n", argv[1]);
-               return;
-           }
+       job->state = BG;
+       kill(-job->pid, SIGCONT);
 
-           job->state = BG;
-           kill(-job->pid, SIGCONT);
-       } else {
-           /* Identified by PID */
-           pid_t pid = (pid_t) atoi(argv[1]);
-           job = getjobpid(jobs, pid);
-           
-           job->state = BG;
-           kill(-job->pid, SIGCONT);
-       }
-       
-       if(job != NULL) {
-           printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
-       }
+       /* Display job info */
+       printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
     } else if(!strcmp(argv[0], "fg")) {
        /* Change a stopped or running background job to a running
         * job in the foreground by sending a SIGCONT signal */
-       if(argv[1][0] == '%') {
-           /* Identified by JID */
-           int jid = atoi(argv[1] + 1);
-           if((job = getjobjid(jobs, jid)) == NULL) {
-               printf("%s: No such job\n", argv[1]);
-               return;
-           }
-
-           job->state = FG;
-           kill(-job->pid, SIGCONT);
-           waitfg(job->pid);
-
-       } else {
-           /* Identified by PID */
-           pid_t pid = (pid_t) atoi(argv[1]);
-           if((job = getjobpid(jobs, pid)) == NULL) {
-               printf("%s: No such job\n", argv[1]);
-               return;
-           }
-           
-           job->state = FG;
-           kill(-job->pid, SIGCONT);
-           waitfg(job->pid);
-       }
+       job->state = FG;
+       kill(-job->pid, SIGCONT);
+       waitfg(job->pid);
     }
     return;
 }
