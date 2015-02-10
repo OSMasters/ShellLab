@@ -79,6 +79,9 @@ void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
 void Sigemptyset(sigset_t *set);
 void Sigaddset(sigset_t *set, int signum);
 
+/* Implemented helper functions */
+int isnumeric(char *arg);
+
 /* Here are helper routines that we've provided for you */
 int parseline(const char *cmdline, char **argv); 
 void sigquit_handler(int sig);
@@ -168,6 +171,8 @@ int main(int argc, char **argv)
     exit(0); /* control never reaches here */
 }
 
+/* Begin wrappers */
+
 pid_t Fork(void)
 {
     pid_t pid;
@@ -203,6 +208,26 @@ void Sigaddset(sigset_t *set, int signum)
         unix_error("Sigaddset error");
     return;
 }
+
+/* End wrappers */
+
+/* Begin helper functions */
+
+/* Returns 1 if string is a number,
+ * 0 if it contains a non numeric character */
+int isnumeric(char *arg)
+{
+    int i;
+
+    for(i = 0; arg[i] != '\0'; i++) {
+        if(!isdigit(arg[i]))
+            return 0;
+    }
+    
+    return 1;
+}
+
+/* End helper functions */
   
 /* 
  * eval - Evaluate the command line that the user has just typed in
@@ -344,6 +369,18 @@ int builtin_cmd(char **argv)
 void do_bgfg(char **argv)
 {
     struct job_t *job = NULL;
+    if(argv[1] == '\0') {
+        /* No argument, handle this error */
+        printf("%s command requires PID or \%jobid argument\n", argv[0]);
+    }
+
+    char *arg = (argv[1][0] == '%') ? argv[1] : argv[1] + 1;
+
+    if(!isnumeric(arg)) {
+        /* Illegal argument, handle this error */
+        printf("%s: argument must be a PID og \%jobid\n", argv[0]);
+    }
+
     if(!strcmp(argv[0], "bg")) {
        /* Change a stopped background job to a running background job
         * by sending a SIGCONT signal */
@@ -379,17 +416,22 @@ void do_bgfg(char **argv)
                printf("%s: No such job\n", argv[1]);
                return;
            }
-          /* Process needs to be forked */ 
+
            job->state = FG;
            kill(-job->pid, SIGCONT);
-           printf("job: %d continued\n", jid);
+           waitfg(job->pid);
+
        } else {
            /* Identified by PID */
            pid_t pid = (pid_t) atoi(argv[1]);
-           job = getjobpid(jobs, pid);
+           if((job = getjobpid(jobs, pid)) == NULL) {
+               printf("%s: No such job\n", argv[1]);
+               return;
+           }
            
            job->state = FG;
            kill(-job->pid, SIGCONT);
+           waitfg(job->pid);
        }
     }
     return;
